@@ -190,12 +190,17 @@ class PCBuilderApp:
         for var in option_vars.values():
             var.trace_add('write', update_total)
         def check_compatibility():
-            # Example: CPU and Motherboard socket match, PSU wattage sufficient
+            # Get all selected components
             cpu = option_vars['CPU'].get()
             mobo = option_vars['Motherboard'].get()
             ram = option_vars['RAM'].get()
+            gpu = option_vars['GPU'].get()
             psu = option_vars['PSU'].get()
-            # Check CPU and Motherboard socket (assume socket in name, e.g., 'i5-12400 (LGA1700)')
+            case = option_vars['Case'].get()
+            
+            import re
+            
+            # 1. CPU and Motherboard socket compatibility
             cpu_socket = None
             mobo_socket = None
             cpu_match = re.search(r'\(([^)]+)\)', cpu)
@@ -206,16 +211,110 @@ class PCBuilderApp:
                 mobo_socket = mobo_match.group(1)
             if cpu_socket and mobo_socket and cpu_socket != mobo_socket:
                 return False, f'CPU socket ({cpu_socket}) does not match Motherboard socket ({mobo_socket})!'
-            # Check PSU wattage (assume wattage in name, e.g., 'Corsair 650W')
+            
+            # 2. Case and Motherboard form factor compatibility
+            case_size = None
+            mobo_form = None
+            # Extract case size (ATX, mATX, ITX, etc.)
+            case_match = re.search(r'(ATX|mATX|ITX|E-ATX|mini-ITX)', case, re.IGNORECASE)
+            if case_match:
+                case_size = case_match.group(1).upper()
+            # Extract motherboard form factor
+            mobo_match = re.search(r'(ATX|mATX|ITX|E-ATX|mini-ITX)', mobo, re.IGNORECASE)
+            if mobo_match:
+                mobo_form = mobo_match.group(1).upper()
+            
+            if case_size and mobo_form:
+                # Compatibility matrix
+                compatible_sizes = {
+                    'ATX': ['ATX', 'mATX', 'ITX', 'mini-ITX'],
+                    'mATX': ['mATX', 'ITX', 'mini-ITX'],
+                    'ITX': ['ITX', 'mini-ITX'],
+                    'mini-ITX': ['mini-ITX'],
+                    'E-ATX': ['E-ATX', 'ATX', 'mATX', 'ITX', 'mini-ITX']
+                }
+                if case_size in compatible_sizes and mobo_form not in compatible_sizes[case_size]:
+                    return False, f'Case ({case_size}) is too small for Motherboard ({mobo_form})!'
+            
+            # 3. RAM type and speed compatibility
+            ram_type = None
+            ram_speed = None
+            mobo_ram_type = None
+            mobo_ram_speed = None
+            
+            # Extract RAM type (DDR4, DDR5, etc.)
+            ram_match = re.search(r'(DDR[45])', ram, re.IGNORECASE)
+            if ram_match:
+                ram_type = ram_match.group(1).upper()
+            # Extract RAM speed
+            ram_speed_match = re.search(r'(\d{3,4})\s*MHz', ram)
+            if ram_speed_match:
+                ram_speed = int(ram_speed_match.group(1))
+            
+            # Extract motherboard RAM support
+            mobo_ram_match = re.search(r'(DDR[45])', mobo, re.IGNORECASE)
+            if mobo_ram_match:
+                mobo_ram_type = mobo_ram_match.group(1).upper()
+            mobo_speed_match = re.search(r'(\d{3,4})\s*MHz', mobo)
+            if mobo_speed_match:
+                mobo_ram_speed = int(mobo_speed_match.group(1))
+            
+            if ram_type and mobo_ram_type and ram_type != mobo_ram_type:
+                return False, f'RAM type ({ram_type}) is not compatible with Motherboard ({mobo_ram_type})!'
+            
+            if ram_speed and mobo_ram_speed and ram_speed > mobo_ram_speed:
+                return False, f'RAM speed ({ram_speed}MHz) exceeds Motherboard maximum ({mobo_ram_speed}MHz)!'
+            
+            # 4. PSU wattage requirements
             psu_watt = None
-            gpu = option_vars['GPU'].get()
-            psu_match = re.search(r'(\d+)W', psu)
+            psu_match = re.search(r'(\d{3,4})\s*W', psu)
             if psu_match:
                 psu_watt = int(psu_match.group(1))
-            # Assume GPU needs 400W if present
-            if psu_watt is not None and gpu and psu_watt < 400:
-                return False, 'PSU wattage may be insufficient for selected GPU!'
-            # Add more checks as needed
+            
+            if psu_watt is not None:
+                # Calculate estimated power requirements
+                estimated_wattage = 0
+                
+                # Base system power (CPU, motherboard, RAM, storage)
+                estimated_wattage += 150  # Base system
+                
+                # CPU power (estimate based on common ranges)
+                if 'i9' in cpu or 'Ryzen 9' in cpu:
+                    estimated_wattage += 125
+                elif 'i7' in cpu or 'Ryzen 7' in cpu:
+                    estimated_wattage += 95
+                elif 'i5' in cpu or 'Ryzen 5' in cpu:
+                    estimated_wattage += 65
+                elif 'i3' in cpu or 'Ryzen 3' in cpu:
+                    estimated_wattage += 50
+                else:
+                    estimated_wattage += 75  # Default estimate
+                
+                # GPU power (estimate based on common ranges)
+                if gpu:
+                    if 'RTX 4090' in gpu or 'RTX 4080' in gpu:
+                        estimated_wattage += 320
+                    elif 'RTX 4070' in gpu or 'RTX 3080' in gpu:
+                        estimated_wattage += 220
+                    elif 'RTX 3060' in gpu or 'RTX 4060' in gpu:
+                        estimated_wattage += 170
+                    elif 'GTX 1660' in gpu or 'RTX 3050' in gpu:
+                        estimated_wattage += 120
+                    else:
+                        estimated_wattage += 150  # Default GPU estimate
+                
+                # Add 20% buffer for safety
+                required_wattage = int(estimated_wattage * 1.2)
+                
+                if psu_watt < required_wattage:
+                    return False, f'PSU ({psu_watt}W) may be insufficient. Estimated requirement: {required_wattage}W'
+            
+            # 5. Additional checks can be added here
+            # - GPU length vs case clearance
+            # - CPU cooler height vs case clearance
+            # - Storage drive compatibility
+            # - etc.
+            
             return True, ''
         def submit_build():
             # Check all selections made
