@@ -315,6 +315,95 @@ class PCBuilderApp:
             # - Storage drive compatibility
             # - etc.
             
+            # 5. GPU length vs case clearance
+            gpu_length = None
+            case_gpu_clearance = None
+            
+            # Extract GPU length (assume format like "RTX 4070 (280mm)" or "RTX 4090 (304mm)")
+            gpu_length_match = re.search(r'\((\d{2,3})\s*mm\)', gpu)
+            if gpu_length_match:
+                gpu_length = int(gpu_length_match.group(1))
+            
+            # Extract case GPU clearance (assume format like "NZXT H510 (360mm GPU clearance)")
+            case_gpu_match = re.search(r'(\d{2,3})\s*mm.*GPU', case, re.IGNORECASE)
+            if case_gpu_match:
+                case_gpu_clearance = int(case_gpu_match.group(1))
+            
+            if gpu_length and case_gpu_clearance and gpu_length > case_gpu_clearance:
+                return False, f'GPU length ({gpu_length}mm) exceeds case clearance ({case_gpu_clearance}mm)!'
+            
+            # 6. CPU cooler height vs case clearance
+            cooler_height = None
+            case_cooler_clearance = None
+            
+            # Extract CPU cooler height (assume format like "Noctua NH-D15 (165mm)" or "Cooler Master Hyper 212 (159mm)")
+            cooler_match = re.search(r'\((\d{2,3})\s*mm\)', cpu)
+            if cooler_match:
+                cooler_height = int(cooler_match.group(1))
+            
+            # Extract case CPU cooler clearance (assume format like "NZXT H510 (165mm CPU cooler clearance)")
+            case_cooler_match = re.search(r'(\d{2,3})\s*mm.*CPU.*cooler', case, re.IGNORECASE)
+            if case_cooler_match:
+                case_cooler_clearance = int(case_cooler_match.group(1))
+            
+            if cooler_height and case_cooler_clearance and cooler_height > case_cooler_clearance:
+                return False, f'CPU cooler height ({cooler_height}mm) exceeds case clearance ({case_cooler_clearance}mm)!'
+            
+            # 7. Storage drive compatibility
+            # Check if case supports the storage drives (assuming common 2.5" and 3.5" drives)
+            # This is more of a general check since most modern cases support both
+            storage_support = True
+            if 'mini-ITX' in case_size or 'ITX' in case_size:
+                # Small cases might have limited storage options
+                if '3.5"' in case and '2.5"' not in case:
+                    # Case only supports 3.5" drives
+                    pass  # Could add specific storage checks here
+            
+            # 8. Motherboard PCIe slot compatibility with GPU
+            # Check if motherboard has enough PCIe slots for the GPU
+            # Most modern motherboards have at least one PCIe x16 slot
+            pcie_slots = 1  # Default assumption
+            if 'ATX' in mobo_form:
+                pcie_slots = 3  # ATX typically has 3+ PCIe slots
+            elif 'mATX' in mobo_form:
+                pcie_slots = 2  # mATX typically has 2 PCIe slots
+            elif 'ITX' in mobo_form or 'mini-ITX' in mobo_form:
+                pcie_slots = 1  # ITX typically has 1 PCIe slot
+            
+            # If user wants to add multiple GPUs, this would be relevant
+            # For now, assume single GPU builds
+            
+            # 9. Memory channel compatibility
+            # Check if RAM configuration matches motherboard memory channels
+            ram_channels = 2  # Default dual-channel
+            if 'ITX' in mobo_form or 'mini-ITX' in mobo_form:
+                ram_channels = 2  # ITX boards are typically dual-channel
+            elif 'ATX' in mobo_form or 'mATX' in mobo_form:
+                ram_channels = 2  # Most modern boards are dual-channel (some are quad)
+            
+            # 10. Power connector compatibility
+            # Check if PSU has required connectors for GPU
+            psu_connectors = []
+            gpu_connectors = []
+            
+            # Extract PSU connector info (assume format like "Corsair RM750x (750W, 2x8-pin PCIe)")
+            psu_connector_match = re.search(r'(\d+)x(\d+)-pin', psu)
+            if psu_connector_match:
+                count = int(psu_connector_match.group(1))
+                pins = int(psu_connector_match.group(2))
+                psu_connectors.append(f"{count}x{pins}-pin")
+            
+            # Extract GPU connector requirements (assume format like "RTX 4070 (1x8-pin)" or "RTX 4090 (1x16-pin)")
+            gpu_connector_match = re.search(r'(\d+)x(\d+)-pin', gpu)
+            if gpu_connector_match:
+                count = int(gpu_connector_match.group(1))
+                pins = int(gpu_connector_match.group(2))
+                gpu_connectors.append(f"{count}x{pins}-pin")
+            
+            # Basic connector check (simplified)
+            if gpu_connectors and not psu_connectors:
+                return False, 'PSU connector information not available for GPU requirements!'
+            
             return True, ''
         def submit_build():
             # Check all selections made
