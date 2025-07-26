@@ -2,10 +2,18 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 import json
 import os
+import re
+import smtplib
+from email.message import EmailMessage
 
 CONFIG_FILE = 'config.json'
 ADMIN_USER = 'admin'
 ADMIN_PASS = 'pass1234!'
+
+SMTP_SERVER = 'smtp.gmail.com'
+SMTP_PORT = 587
+SMTP_USER = 'your_gmail@gmail.com'  # Set your sending email here
+SMTP_PASS = 'your_app_password'      # Set your app password here
 
 # Load config
 def load_config():
@@ -62,7 +70,94 @@ class PCBuilderApp:
             save_config(self.config)
             messagebox.showinfo('Saved', 'Email address updated!')
         tk.Button(email_frame, text='Save', command=save_email).pack(side='left', padx=5)
-        # TODO: Add component management UI here
+
+        # Component management
+        comp_frame = tk.Frame(frame)
+        comp_frame.pack(pady=10)
+        tk.Label(comp_frame, text='Manage Components', font=('Arial', 12)).pack()
+        cat_var = tk.StringVar(value='CPU')
+        cat_menu = ttk.Combobox(comp_frame, textvariable=cat_var, values=list(self.config['components'].keys()), state='readonly')
+        cat_menu.pack(pady=5)
+
+        list_frame = tk.Frame(comp_frame)
+        list_frame.pack()
+        comp_listbox = tk.Listbox(list_frame, width=40)
+        comp_listbox.pack(side='left')
+        scrollbar = tk.Scrollbar(list_frame, orient='vertical', command=comp_listbox.yview)
+        scrollbar.pack(side='right', fill='y')
+        comp_listbox.config(yscrollcommand=scrollbar.set)
+
+        def refresh_list():
+            comp_listbox.delete(0, tk.END)
+            for comp in self.config['components'][cat_var.get()]:
+                comp_listbox.insert(tk.END, f"{comp['name']} (${comp['price']})")
+        def on_cat_change(event=None):
+            refresh_list()
+        cat_menu.bind('<<ComboboxSelected>>', on_cat_change)
+
+        # Add/Edit/Delete
+        entry_frame = tk.Frame(comp_frame)
+        entry_frame.pack(pady=5)
+        name_var = tk.StringVar()
+        price_var = tk.StringVar()
+        tk.Label(entry_frame, text='Name:').grid(row=0, column=0)
+        tk.Entry(entry_frame, textvariable=name_var, width=15).grid(row=0, column=1)
+        tk.Label(entry_frame, text='Price:').grid(row=0, column=2)
+        tk.Entry(entry_frame, textvariable=price_var, width=8).grid(row=0, column=3)
+        def add_component():
+            name = name_var.get().strip()
+            try:
+                price = float(price_var.get())
+            except ValueError:
+                messagebox.showerror('Error', 'Invalid price!')
+                return
+            if not name:
+                messagebox.showerror('Error', 'Name required!')
+                return
+            self.config['components'][cat_var.get()].append({'name': name, 'price': price})
+            save_config(self.config)
+            name_var.set('')
+            price_var.set('')
+            refresh_list()
+        def edit_component():
+            sel = comp_listbox.curselection()
+            if not sel:
+                messagebox.showerror('Error', 'Select a component to edit!')
+                return
+            idx = sel[0]
+            name = name_var.get().strip()
+            try:
+                price = float(price_var.get())
+            except ValueError:
+                messagebox.showerror('Error', 'Invalid price!')
+                return
+            if not name:
+                messagebox.showerror('Error', 'Name required!')
+                return
+            self.config['components'][cat_var.get()][idx] = {'name': name, 'price': price}
+            save_config(self.config)
+            refresh_list()
+        def delete_component():
+            sel = comp_listbox.curselection()
+            if not sel:
+                messagebox.showerror('Error', 'Select a component to delete!')
+                return
+            idx = sel[0]
+            del self.config['components'][cat_var.get()][idx]
+            save_config(self.config)
+            refresh_list()
+        tk.Button(entry_frame, text='Add', command=add_component).grid(row=0, column=4, padx=5)
+        tk.Button(entry_frame, text='Edit', command=edit_component).grid(row=0, column=5, padx=5)
+        tk.Button(entry_frame, text='Delete', command=delete_component).grid(row=0, column=6, padx=5)
+        def on_list_select(event):
+            sel = comp_listbox.curselection()
+            if sel:
+                comp = self.config['components'][cat_var.get()][sel[0]]
+                name_var.set(comp['name'])
+                price_var.set(str(comp['price']))
+        comp_listbox.bind('<<ListboxSelect>>', on_list_select)
+        refresh_list()
+
         tk.Button(frame, text='Logout', command=self.show_login).pack(pady=10)
 
     def show_user_panel(self):
@@ -70,8 +165,97 @@ class PCBuilderApp:
         frame = tk.Frame(self.root)
         frame.pack(padx=20, pady=20)
         tk.Label(frame, text='PC Builder - User', font=('Arial', 16)).pack(pady=10)
-        # TODO: Add component selection and build submission UI here
-        tk.Button(frame, text='Logout', command=self.show_login).pack(pady=10)
+        # Component selection
+        selections = {}
+        option_vars = {}
+        row = 1
+        for cat, items in self.config['components'].items():
+            tk.Label(frame, text=cat+':').grid(row=row, column=0, sticky='e')
+            var = tk.StringVar()
+            option_vars[cat] = var
+            options = [f"{c['name']} (${c['price']})" for c in items]
+            cb = ttk.Combobox(frame, textvariable=var, values=options, state='readonly', width=30)
+            cb.grid(row=row, column=1, pady=2)
+            row += 1
+        total_var = tk.StringVar(value='Total: $0.00')
+        tk.Label(frame, textvariable=total_var, font=('Arial', 12)).grid(row=row, column=0, columnspan=2, pady=10)
+        def update_total(*args):
+            total = 0
+            for cat, var in option_vars.items():
+                val = var.get()
+                if val:
+                    price = float(val.split('$')[-1].replace(')','').strip())
+                    total += price
+            total_var.set(f'Total: ${total:.2f}')
+        for var in option_vars.values():
+            var.trace_add('write', update_total)
+        def check_compatibility():
+            # Example: CPU and Motherboard socket match, PSU wattage sufficient
+            cpu = option_vars['CPU'].get()
+            mobo = option_vars['Motherboard'].get()
+            ram = option_vars['RAM'].get()
+            psu = option_vars['PSU'].get()
+            # Check CPU and Motherboard socket (assume socket in name, e.g., 'i5-12400 (LGA1700)')
+            cpu_socket = None
+            mobo_socket = None
+            cpu_match = re.search(r'\(([^)]+)\)', cpu)
+            mobo_match = re.search(r'\(([^)]+)\)', mobo)
+            if cpu_match:
+                cpu_socket = cpu_match.group(1)
+            if mobo_match:
+                mobo_socket = mobo_match.group(1)
+            if cpu_socket and mobo_socket and cpu_socket != mobo_socket:
+                return False, f'CPU socket ({cpu_socket}) does not match Motherboard socket ({mobo_socket})!'
+            # Check PSU wattage (assume wattage in name, e.g., 'Corsair 650W')
+            psu_watt = None
+            gpu = option_vars['GPU'].get()
+            psu_match = re.search(r'(\d+)W', psu)
+            if psu_match:
+                psu_watt = int(psu_match.group(1))
+            # Assume GPU needs 400W if present
+            if psu_watt is not None and gpu and psu_watt < 400:
+                return False, 'PSU wattage may be insufficient for selected GPU!'
+            # Add more checks as needed
+            return True, ''
+        def submit_build():
+            # Check all selections made
+            for cat, var in option_vars.items():
+                if not var.get():
+                    messagebox.showerror('Error', f'Please select a {cat}.')
+                    return
+            compatible, msg = check_compatibility()
+            if not compatible:
+                messagebox.showerror('Compatibility Error', msg)
+                return
+            # Prepare build summary
+            build = {cat: var.get() for cat, var in option_vars.items()}
+            total = total_var.get()
+            # Ask for user email
+            user_email = simpledialog.askstring('Your Email', 'Enter your email address (for reply):')
+            if not user_email:
+                messagebox.showerror('Error', 'Email address required!')
+                return
+            # Send email
+            try:
+                msg = EmailMessage()
+                msg['Subject'] = 'New PC Build Submission'
+                msg['From'] = SMTP_USER
+                msg['To'] = self.config.get('email', '')
+                msg['Reply-To'] = user_email
+                body = 'PC Build Submission:\n\n'
+                for cat, val in build.items():
+                    body += f'{cat}: {val}\n'
+                body += f'\n{total}\nUser Email: {user_email}\n'
+                msg.set_content(body)
+                with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                    server.starttls()
+                    server.login(SMTP_USER, SMTP_PASS)
+                    server.send_message(msg)
+                messagebox.showinfo('Submitted', 'Your build has been submitted!')
+            except Exception as e:
+                messagebox.showerror('Error', f'Failed to send email: {e}')
+        tk.Button(frame, text='Submit Build', command=submit_build).grid(row=row+1, column=0, columnspan=2, pady=10)
+        tk.Button(frame, text='Logout', command=self.show_login).grid(row=row+2, column=0, columnspan=2, pady=5)
 
     def clear_window(self):
         for widget in self.root.winfo_children():
