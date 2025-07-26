@@ -101,9 +101,34 @@ class PCBuilderApp:
         name_var = tk.StringVar()
         price_var = tk.StringVar()
         tk.Label(entry_frame, text='Name:').grid(row=0, column=0)
-        tk.Entry(entry_frame, textvariable=name_var, width=15).grid(row=0, column=1)
+        name_entry = tk.Entry(entry_frame, textvariable=name_var, width=30)
+        name_entry.grid(row=0, column=1)
         tk.Label(entry_frame, text='Price:').grid(row=0, column=2)
-        tk.Entry(entry_frame, textvariable=price_var, width=8).grid(row=0, column=3)
+        price_entry = tk.Entry(entry_frame, textvariable=price_var, width=8)
+        price_entry.grid(row=0, column=3)
+        
+        # Add naming convention helper
+        helper_frame = tk.Frame(comp_frame)
+        helper_frame.pack(pady=5)
+        helper_text = tk.Text(helper_frame, height=8, width=60, wrap=tk.WORD)
+        helper_text.pack()
+        
+        def update_helper_text():
+            category = cat_var.get()
+            examples = {
+                'CPU': 'Examples:\n• Intel i5-12400 (LGA1700, 165mm cooler)\n• AMD Ryzen 5 5600X (AM4, 159mm cooler)\n• Intel i9-13900K (LGA1700, 170mm cooler)\n\nInclude: Socket type, cooler height if known',
+                'Motherboard': 'Examples:\n• MSI B660M (LGA1700, DDR4, 3200MHz, mATX)\n• ASUS B550 (AM4, DDR4, 3600MHz, ATX)\n• Gigabyte Z690 (LGA1700, DDR5, 6000MHz, ATX)\n\nInclude: Socket, RAM type, max speed, form factor',
+                'RAM': 'Examples:\n• Corsair Vengeance 16GB (DDR4, 3200MHz)\n• G.Skill Ripjaws 32GB (DDR5, 6000MHz)\n• Kingston Fury 8GB (DDR4, 2666MHz)\n\nInclude: Capacity, RAM type, speed',
+                'GPU': 'Examples:\n• NVIDIA RTX 4070 (280mm, 1x8-pin)\n• AMD RX 6700 XT (267mm, 1x8-pin)\n• NVIDIA RTX 4090 (304mm, 1x16-pin)\n\nInclude: Length, power connector requirements',
+                'PSU': 'Examples:\n• Corsair RM750x (750W, 2x8-pin PCIe, 1x6-pin PCIe)\n• EVGA 650W (650W, 1x8-pin PCIe)\n• Seasonic 850W (850W, 2x8-pin PCIe, 2x6-pin PCIe)\n\nInclude: Wattage, PCIe connectors',
+                'Case': 'Examples:\n• NZXT H510 (ATX, 360mm GPU clearance, 165mm CPU cooler clearance)\n• Fractal Design Meshify C (ATX, 315mm GPU, 170mm cooler)\n• Cooler Master NR200 (mini-ITX, 330mm GPU, 155mm cooler)\n\nInclude: Form factor, GPU clearance, CPU cooler clearance'
+            }
+            helper_text.delete(1.0, tk.END)
+            helper_text.insert(1.0, examples.get(category, 'Select a category for naming examples'))
+        
+        cat_menu.bind('<<ComboboxSelected>>', lambda e: update_helper_text())
+        update_helper_text()
+        
         def add_component():
             name = name_var.get().strip()
             try:
@@ -114,11 +139,67 @@ class PCBuilderApp:
             if not name:
                 messagebox.showerror('Error', 'Name required!')
                 return
+            
+            # Validate naming convention
+            category = cat_var.get()
+            validation_msg = validate_component_name(name, category)
+            if validation_msg:
+                result = messagebox.askyesno('Naming Convention Warning', 
+                    f'{validation_msg}\n\nDo you want to continue anyway?')
+                if not result:
+                    return
+            
             self.config['components'][cat_var.get()].append({'name': name, 'price': price})
             save_config(self.config)
             name_var.set('')
             price_var.set('')
             refresh_list()
+            
+        def validate_component_name(name, category):
+            """Validate component naming convention"""
+            warnings = []
+            
+            if category == 'CPU':
+                if not re.search(r'\([^)]+\)', name):
+                    warnings.append("CPU should include socket type in parentheses (e.g., LGA1700, AM4)")
+                if not re.search(r'\d+mm', name):
+                    warnings.append("Consider adding cooler height if known (e.g., 165mm)")
+                    
+            elif category == 'Motherboard':
+                if not re.search(r'\([^)]+\)', name):
+                    warnings.append("Motherboard should include socket, RAM type, and form factor")
+                if not re.search(r'DDR[45]', name, re.IGNORECASE):
+                    warnings.append("Include RAM type (DDR4, DDR5)")
+                if not re.search(r'(ATX|mATX|ITX|mini-ITX)', name, re.IGNORECASE):
+                    warnings.append("Include form factor (ATX, mATX, ITX, mini-ITX)")
+                    
+            elif category == 'RAM':
+                if not re.search(r'DDR[45]', name, re.IGNORECASE):
+                    warnings.append("Include RAM type (DDR4, DDR5)")
+                if not re.search(r'\d{3,4}MHz', name):
+                    warnings.append("Include RAM speed (e.g., 3200MHz)")
+                    
+            elif category == 'GPU':
+                if not re.search(r'\(\d+mm', name):
+                    warnings.append("Include GPU length in parentheses (e.g., 280mm)")
+                if not re.search(r'\d+x\d+-pin', name):
+                    warnings.append("Include power connector requirements (e.g., 1x8-pin)")
+                    
+            elif category == 'PSU':
+                if not re.search(r'\(\d+W', name):
+                    warnings.append("Include wattage in parentheses (e.g., 750W)")
+                if not re.search(r'\d+x\d+-pin', name):
+                    warnings.append("Include PCIe connectors if available (e.g., 2x8-pin)")
+                    
+            elif category == 'Case':
+                if not re.search(r'(ATX|mATX|ITX|mini-ITX)', name, re.IGNORECASE):
+                    warnings.append("Include form factor (ATX, mATX, ITX, mini-ITX)")
+                if not re.search(r'\d+mm.*GPU', name, re.IGNORECASE):
+                    warnings.append("Include GPU clearance (e.g., 360mm GPU clearance)")
+                if not re.search(r'\d+mm.*CPU.*cooler', name, re.IGNORECASE):
+                    warnings.append("Include CPU cooler clearance (e.g., 165mm CPU cooler clearance)")
+            
+            return '\n'.join(warnings) if warnings else None
         def edit_component():
             sel = comp_listbox.curselection()
             if not sel:
