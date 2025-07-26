@@ -1,0 +1,11 @@
+{
+  "email": "your@email.com",
+  "components": {
+    "CPU": [],
+    "Motherboard": [],
+    "RAM": [],
+    "GPU": [],
+    "PSU": [],
+    "Case": []
+  }
+}
